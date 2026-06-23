@@ -11,6 +11,10 @@ import java.util.Map;
 
 public class PortScanDetector {
 
+  private static final int PORT_SCAN_THRESHOLD = 20;
+  private static final Duration PORT_SCAN_WINDOW = Duration.ofSeconds(60);
+  private static final Duration PORT_SCAN_COOLDOWN = PORT_SCAN_WINDOW;
+
   private static class PortAttempt {
     private final PacketDTO packet;
 
@@ -22,18 +26,17 @@ public class PortScanDetector {
   private static class SourceState {
     private final Deque<PortAttempt> attempts = new ArrayDeque<>();
     private final Map<Integer, Integer> portCounts = new HashMap<>();
+    private Instant lastWarn;
     private Instant lastAlert;
   }
 
-  private final int threshold;
-  private final Duration window;
-  private final Duration alertCooldown;
   private final Map<String, SourceState> stateBySource = new HashMap<>();
 
   public PortScanDetector(int threshold, Duration window) {
-    this.threshold = threshold;
-    this.window = window;
-    this.alertCooldown = window;
+    this();
+  }
+
+  public PortScanDetector() {
   }
 
   public AlertEvent evaluate(PacketDTO packet) {
@@ -53,27 +56,47 @@ public class PortScanDetector {
     recordAttempt(state, packet);
 
     int uniquePorts = state.portCounts.size();
-    if (uniquePorts >= threshold && shouldAlert(state, packet.getTimestamp())) {
+    if (uniquePorts > PORT_SCAN_THRESHOLD && shouldEmit(state.lastAlert, packet.getTimestamp())) {
       state.lastAlert = packet.getTimestamp();
-      String description = String.format(
-          "Possivel port scan: %d portas distintas em %d segundos.",
+      return buildAlert(
+          state,
+          packet,
           uniquePorts,
-          window.getSeconds());
-      List<PacketDTO> relatedPackets = new ArrayList<>(state.attempts.size());
-      for (PortAttempt attempt : state.attempts) {
-        relatedPackets.add(attempt.packet);
-      }
-      return new AlertEvent(
-          packet.getTimestamp(),
-          AlertEvent.Severity.ALERT,
-          AlertEvent.Type.PORT_SCAN,
-          packet.getSourceIp(),
-          packet.getDestinationIp(),
-          description,
-          relatedPackets);
+          AlertEvent.Severity.ALERT);
+    }
+    if (uniquePorts == PORT_SCAN_THRESHOLD && shouldEmit(state.lastWarn, packet.getTimestamp())) {
+      state.lastWarn = packet.getTimestamp();
+      return buildAlert(
+          state,
+          packet,
+          uniquePorts,
+          AlertEvent.Severity.WARN);
     }
 
     return null;
+  }
+
+  private AlertEvent buildAlert(
+      SourceState state,
+      PacketDTO packet,
+      int uniquePorts,
+      AlertEvent.Severity severity) {
+    String description = String.format(
+        "Possivel port scan: %d portas distintas em %d segundos.",
+        uniquePorts,
+        PORT_SCAN_WINDOW.getSeconds());
+    List<PacketDTO> relatedPackets = new ArrayList<>(state.attempts.size());
+    for (PortAttempt attempt : state.attempts) {
+      relatedPackets.add(attempt.packet);
+    }
+    return new AlertEvent(
+        packet.getTimestamp(),
+        severity,
+        AlertEvent.Type.PORT_SCAN,
+        packet.getSourceIp(),
+        packet.getDestinationIp(),
+        description,
+        relatedPackets);
   }
 
   private void recordAttempt(SourceState state, PacketDTO packet) {
@@ -85,7 +108,7 @@ public class PortScanDetector {
   private void pruneOldAttempts(SourceState state, Instant now) {
     while (!state.attempts.isEmpty()) {
       PortAttempt attempt = state.attempts.peekFirst();
-      if (Duration.between(attempt.packet.getTimestamp(), now).compareTo(window) <= 0) {
+      if (Duration.between(attempt.packet.getTimestamp(), now).compareTo(PORT_SCAN_WINDOW) <= 0) {
         break;
       }
       state.attempts.removeFirst();
@@ -99,10 +122,10 @@ public class PortScanDetector {
     }
   }
 
-  private boolean shouldAlert(SourceState state, Instant now) {
-    if (state.lastAlert == null) {
+  private boolean shouldEmit(Instant lastEmission, Instant now) {
+    if (lastEmission == null) {
       return true;
     }
-    return Duration.between(state.lastAlert, now).compareTo(alertCooldown) > 0;
+    return Duration.between(lastEmission, now).compareTo(PORT_SCAN_COOLDOWN) > 0;
   }
 }

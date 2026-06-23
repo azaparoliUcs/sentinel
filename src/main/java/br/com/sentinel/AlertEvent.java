@@ -14,10 +14,7 @@ public class AlertEvent {
 
   public enum Type {
     PORT_SCAN,
-    FRAGMENTATION,
-    ICMP_FLOOD,
-    PING_OF_DEATH,
-    ICMP_TUNNELING
+    FRAGMENTATION
   }
 
   private final Instant timestamp;

@@ -7,14 +7,11 @@ public class SecurityAnalyzer {
 
   private final PortScanDetector portScanDetector;
   private final FragmentationAnalyzer fragmentationAnalyzer;
-  private final IcmpAnalyzer icmpAnalyzer;
 
   public SecurityAnalyzer(PortScanDetector portScanDetector,
-                          FragmentationAnalyzer fragmentationAnalyzer,
-                          IcmpAnalyzer icmpAnalyzer) {
+                          FragmentationAnalyzer fragmentationAnalyzer) {
     this.portScanDetector = portScanDetector;
     this.fragmentationAnalyzer = fragmentationAnalyzer;
-    this.icmpAnalyzer = icmpAnalyzer;
   }
 
   public List<AlertEvent> analyze(PacketDTO packet) {
@@ -31,10 +28,6 @@ public class SecurityAnalyzer {
     AlertEvent fragmentationAlert = fragmentationAnalyzer.evaluate(packet);
     if (fragmentationAlert != null) {
       alerts.add(fragmentationAlert);
-    }
-
-    if (icmpAnalyzer != null) {
-      alerts.addAll(icmpAnalyzer.evaluate(packet));
     }
 
     return alerts;

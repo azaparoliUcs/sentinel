@@ -3,7 +3,6 @@ package br.com.sentinel;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.time.Duration;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -13,6 +12,12 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
+
+import org.pcap4j.core.NotOpenException;
+import org.pcap4j.core.PcapNativeException;
+import org.pcap4j.core.PcapNetworkInterface;
+import org.pcap4j.core.Pcaps;
+
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.beans.property.ReadOnlyStringWrapper;
@@ -23,6 +28,7 @@ import javafx.geometry.Pos;
 import javafx.scene.Scene;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
+import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.RadioButton;
 import javafx.scene.control.Spinner;
@@ -42,14 +48,12 @@ import javafx.scene.layout.VBox;
 import javafx.stage.FileChooser;
 import javafx.stage.Modality;
 import javafx.stage.Stage;
-import org.pcap4j.core.NotOpenException;
-import org.pcap4j.core.PcapNativeException;
 
 public class GuiApp extends Application {
 
   private static final DateTimeFormatter TIMESTAMP_FORMATTER = DateTimeFormatter.ISO_INSTANT;
-  private static final int DEFAULT_PORT_SCAN_THRESHOLD = 10;
-  private static final int DEFAULT_PORT_SCAN_WINDOW_SECONDS = 10;
+  private static final int PORT_SCAN_THRESHOLD = 20;
+  private static final int PORT_SCAN_WINDOW_SECONDS = 60;
   private static final int DEFAULT_FRAGMENT_MIN_SIZE = 400;
 
   private final ObservableList<AlertEvent> alerts = FXCollections.observableArrayList();
@@ -68,9 +72,6 @@ public class GuiApp extends Application {
   private Label alertLabel;
   private Label portScanLabel;
   private Label fragmentationLabel;
-  private Label icmpFloodLabel;
-  private Label pingOfDeathLabel;
-  private Label icmpTunnelLabel;
 
   private int packetCount;
   private int infoCount;
@@ -78,9 +79,6 @@ public class GuiApp extends Application {
   private int alertCount;
   private int portScanCount;
   private int fragmentationCount;
-  private int icmpFloodCount;
-  private int pingOfDeathCount;
-  private int icmpTunnelCount;
 
   private Button startButton;
   private Button stopButton;
@@ -105,18 +103,15 @@ public class GuiApp extends Application {
     Button browseButton = new Button("Procurar...");
     browseButton.setOnAction(event -> chooseFile(stage, fileField));
 
-    TextField interfaceField = new TextField();
-    interfaceField.setPromptText("Ex: eth0");
+    ComboBox<String> interfaceComboBox = new ComboBox<>();
+    interfaceComboBox.setPrefWidth(360);
+    loadAvailableInterfaces(interfaceComboBox);
+    interfaceRadio.setDisable(interfaceComboBox.getItems().isEmpty());
 
-    TextField filterField = new TextField();
-    filterField.setPromptText("Ex: tcp and port 80");
-
-    Spinner<Integer> thresholdSpinner = new Spinner<>(1, 1000, DEFAULT_PORT_SCAN_THRESHOLD);
-    thresholdSpinner.setEditable(true);
-    Spinner<Integer> windowSpinner = new Spinner<>(1, 3600, DEFAULT_PORT_SCAN_WINDOW_SECONDS);
-    windowSpinner.setEditable(true);
     Spinner<Integer> fragmentSpinner = new Spinner<>(1, 65535, DEFAULT_FRAGMENT_MIN_SIZE);
     fragmentSpinner.setEditable(true);
+    Label portScanThresholdLabel = new Label(PORT_SCAN_THRESHOLD + " portas fixas");
+    Label portScanWindowLabel = new Label(PORT_SCAN_WINDOW_SECONDS + " segundos fixos");
 
     startButton = new Button("Iniciar");
     stopButton = new Button("Parar");
@@ -125,17 +120,13 @@ public class GuiApp extends Application {
 
     startButton.setOnAction(event -> {
       String filePath = fileRadio.isSelected() ? fileField.getText().trim() : null;
-      String interfaceName = interfaceRadio.isSelected() ? interfaceField.getText().trim() : null;
-      String filter = filterField.getText().trim();
+      String interfaceName = interfaceRadio.isSelected() ? interfaceComboBox.getValue() : null;
       if (!validateInputs(fileRadio.isSelected(), filePath, interfaceName)) {
         return;
       }
       startCapture(
           interfaceName,
           filePath,
-          filter.isEmpty() ? null : filter,
-          thresholdSpinner.getValue(),
-          windowSpinner.getValue(),
           fragmentSpinner.getValue());
     });
 
@@ -145,29 +136,35 @@ public class GuiApp extends Application {
     fileRadio.selectedProperty().addListener((obs, oldVal, newVal) -> {
       fileField.setDisable(!newVal);
       browseButton.setDisable(!newVal);
-      interfaceField.setDisable(newVal);
+      interfaceComboBox.setDisable(newVal || interfaceComboBox.getItems().isEmpty());
     });
     fileField.setDisable(false);
     browseButton.setDisable(false);
-    interfaceField.setDisable(true);
+    interfaceComboBox.setDisable(true);
 
-    GridPane form = new GridPane();
-    form.setHgap(10);
-    form.setVgap(8);
-    form.add(new Label("Fonte:"), 0, 0);
-    form.add(new HBox(10, fileRadio, interfaceRadio), 1, 0);
-    form.add(new Label("Arquivo:"), 0, 1);
-    form.add(buildFileBox(fileField, browseButton), 1, 1);
-    form.add(new Label("Interface:"), 0, 2);
-    form.add(interfaceField, 1, 2);
-    form.add(new Label("Filtro BPF:"), 0, 3);
-    form.add(filterField, 1, 3);
-    form.add(new Label("Port scan (qtd):"), 0, 4);
-    form.add(thresholdSpinner, 1, 4);
-    form.add(new Label("Janela (seg):"), 0, 5);
-    form.add(windowSpinner, 1, 5);
-    form.add(new Label("Fragmento mín (bytes):"), 0, 6);
-    form.add(fragmentSpinner, 1, 6);
+    GridPane sourceForm = new GridPane();
+    sourceForm.setHgap(10);
+    sourceForm.setVgap(8);
+    sourceForm.add(new Label("Fonte:"), 0, 0);
+    sourceForm.add(new HBox(10, fileRadio, interfaceRadio), 1, 0);
+    sourceForm.add(new Label("Arquivo:"), 0, 1);
+    sourceForm.add(buildFileBox(fileField, browseButton), 1, 1);
+    sourceForm.add(new Label("Interface:"), 0, 2);
+    sourceForm.add(interfaceComboBox, 1, 2);
+
+    GridPane analysisForm = new GridPane();
+    analysisForm.setHgap(10);
+    analysisForm.setVgap(8);
+    analysisForm.add(new Label("Port scan:"), 0, 0);
+    analysisForm.add(portScanThresholdLabel, 1, 0);
+    analysisForm.add(new Label("Janela:"), 0, 1);
+    analysisForm.add(portScanWindowLabel, 1, 1);
+    analysisForm.add(new Label("Fragmento mín (bytes):"), 0, 2);
+    analysisForm.add(fragmentSpinner, 1, 2);
+
+    HBox form = new HBox(30, sourceForm, analysisForm);
+    HBox.setHgrow(sourceForm, Priority.ALWAYS);
+    HBox.setHgrow(analysisForm, Priority.ALWAYS);
 
     HBox actions = new HBox(10, startButton, stopButton, clearButton);
     actions.setPadding(new Insets(10, 0, 0, 0));
@@ -191,9 +188,6 @@ public class GuiApp extends Application {
     alertLabel = new Label("Alert: 0");
     portScanLabel = new Label("Port scan: 0");
     fragmentationLabel = new Label("Fragmentação: 0");
-    icmpFloodLabel = new Label("ICMP flood: 0");
-    pingOfDeathLabel = new Label("Ping of Death: 0");
-    icmpTunnelLabel = new Label("ICMP tunneling: 0");
 
     HBox statsBar = new HBox(
         16,
@@ -203,10 +197,7 @@ public class GuiApp extends Application {
         warnLabel,
         alertLabel,
         portScanLabel,
-        fragmentationLabel,
-        icmpFloodLabel,
-        pingOfDeathLabel,
-        icmpTunnelLabel);
+        fragmentationLabel);
     statsBar.setPadding(new Insets(10, 12, 12, 12));
 
     BorderPane root = new BorderPane();
@@ -248,6 +239,33 @@ public class GuiApp extends Application {
     HBox box = new HBox(8, fileField, browseButton);
     HBox.setHgrow(fileField, Priority.ALWAYS);
     return box;
+  }
+
+  private void loadAvailableInterfaces(ComboBox<String> interfaceComboBox) {
+    try {
+      List<PcapNetworkInterface> devices = Pcaps.findAllDevs();
+      if (devices == null || devices.isEmpty()) {
+        interfaceComboBox.getItems().clear();
+        interfaceComboBox.setPromptText("Nenhuma interface encontrada");
+        interfaceComboBox.setDisable(true);
+        return;
+      }
+
+      interfaceComboBox.getItems().setAll(
+          devices.stream()
+              .map(PcapNetworkInterface::getName)
+              .filter(name -> name != null && !name.isBlank())
+              .toList());
+
+      if (!interfaceComboBox.getItems().isEmpty()) {
+        interfaceComboBox.getSelectionModel().selectFirst();
+      }
+    } catch (PcapNativeException ex) {
+      interfaceComboBox.getItems().clear();
+      interfaceComboBox.setPromptText("Falha ao carregar interfaces");
+      interfaceComboBox.setDisable(true);
+      Platform.runLater(() -> showError("Falha ao listar interfaces disponíveis: " + ex.getMessage()));
+    }
   }
 
   private TableView<AlertEvent> buildAlertTable() {
@@ -382,9 +400,6 @@ public class GuiApp extends Application {
   private void startCapture(
       String interfaceName,
       String filePath,
-      String filter,
-      int portScanThreshold,
-      int portScanWindowSeconds,
       int fragmentMinSize) {
     stopRequested.set(false);
     updateRunningState(true);
@@ -394,12 +409,10 @@ public class GuiApp extends Application {
         captureModule = new CaptureModule(
             interfaceName,
             filePath,
-            filter,
             new PacketParser(),
             new SecurityAnalyzer(
-                new PortScanDetector(portScanThreshold, Duration.ofSeconds(portScanWindowSeconds)),
-                new FragmentationAnalyzer(fragmentMinSize),
-                new IcmpAnalyzer()),
+                new PortScanDetector(),
+                new FragmentationAnalyzer(fragmentMinSize)),
             outputModule);
         captureModule.start();
       } catch (IOException | NotOpenException | PcapNativeException | RuntimeException ex) {
@@ -443,9 +456,6 @@ public class GuiApp extends Application {
     alertCount = 0;
     portScanCount = 0;
     fragmentationCount = 0;
-    icmpFloodCount = 0;
-    pingOfDeathCount = 0;
-    icmpTunnelCount = 0;
     refreshStats();
   }
 
@@ -464,9 +474,6 @@ public class GuiApp extends Application {
     switch (alert.getType()) {
       case PORT_SCAN -> portScanCount++;
       case FRAGMENTATION -> fragmentationCount++;
-      case ICMP_FLOOD -> icmpFloodCount++;
-      case PING_OF_DEATH -> pingOfDeathCount++;
-      case ICMP_TUNNELING -> icmpTunnelCount++;
       default -> {
       }
     }
@@ -489,9 +496,6 @@ public class GuiApp extends Application {
     alertLabel.setText("Alert: " + alertCount);
     portScanLabel.setText("Port scan: " + portScanCount);
     fragmentationLabel.setText("Fragmentação: " + fragmentationCount);
-    icmpFloodLabel.setText("ICMP flood: " + icmpFloodCount);
-    pingOfDeathLabel.setText("Ping of Death: " + pingOfDeathCount);
-    icmpTunnelLabel.setText("ICMP tunneling: " + icmpTunnelCount);
   }
 
   private void updateRunningState(boolean running) {
@@ -577,12 +581,6 @@ public class GuiApp extends Application {
           + "o alerta é emitido.";
       case FRAGMENTATION -> "O analisador monitora fragmentos IPv4 do mesmo ID, origem e destino. "
           + "Ele gera o alerta quando encontra fragmentos sobrepostos ou fragmentos muito pequenos.";
-      case ICMP_FLOOD -> "O analisador conta Echo Requests ICMP por origem dentro de uma janela curta. "
-          + "Ao ultrapassar o limite configurado, ele dispara o alerta.";
-      case PING_OF_DEATH -> "O alerta é gerado quando o payload ICMP ultrapassa o limite máximo esperado, "
-          + "indicando possível ataque Ping of Death.";
-      case ICMP_TUNNELING -> "O detector acompanha Echo Requests com payload grande e entropia suspeita. "
-          + "Quando há volume e padrão suficiente na janela analisada, o alerta é gerado.";
       default -> "Sem detalhes adicionais disponíveis.";
     };
   }

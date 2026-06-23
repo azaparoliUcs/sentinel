@@ -5,7 +5,6 @@ import java.io.IOException;
 import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.TimeoutException;
-import org.pcap4j.core.BpfProgram;
 import org.pcap4j.core.NotOpenException;
 import org.pcap4j.core.PcapHandle;
 import org.pcap4j.core.PcapNativeException;
@@ -20,7 +19,6 @@ public class CaptureModule {
 
   private final String interfaceName;
   private final String filePath;
-  private final String filter;
   private final PacketParser parser;
   private final SecurityAnalyzer analyzer;
   private final OutputModule outputModule;
@@ -31,13 +29,11 @@ public class CaptureModule {
   public CaptureModule(
       String interfaceName,
       String filePath,
-      String filter,
       PacketParser parser,
       SecurityAnalyzer analyzer,
       OutputModule outputModule) {
     this.interfaceName = interfaceName;
     this.filePath = filePath;
-    this.filter = filter;
     this.parser = parser;
     this.analyzer = analyzer;
     this.outputModule = outputModule;
@@ -45,9 +41,6 @@ public class CaptureModule {
 
   public void start() throws IOException, NotOpenException, PcapNativeException {
     handle = openHandle();
-    if (filter != null && !filter.trim().isEmpty()) {
-      handle.setFilter(filter, BpfProgram.BpfCompileMode.OPTIMIZE);
-    }
 
     try {
       while (running) {
