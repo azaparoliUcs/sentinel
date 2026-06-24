@@ -1,5 +1,7 @@
-package br.com.sentinel;
+package br.com.sentinel.analysis;
 
+import br.com.sentinel.model.AlertEvent;
+import br.com.sentinel.model.PacketDTO;
 import java.util.ArrayList;
 import java.util.List;
 

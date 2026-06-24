@@ -1,10 +1,16 @@
-package br.com.sentinel;
+package br.com.sentinel.capture;
 
+import br.com.sentinel.analysis.SecurityAnalyzer;
+import br.com.sentinel.model.AlertEvent;
+import br.com.sentinel.model.PacketDTO;
+import br.com.sentinel.output.OutputDispatcher;
+import br.com.sentinel.parse.PacketParser;
 import java.io.EOFException;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.TimeoutException;
+
 import org.pcap4j.core.NotOpenException;
 import org.pcap4j.core.PcapHandle;
 import org.pcap4j.core.PcapNativeException;
@@ -21,7 +27,7 @@ public class CaptureModule {
   private final String filePath;
   private final PacketParser parser;
   private final SecurityAnalyzer analyzer;
-  private final OutputModule outputModule;
+  private final OutputDispatcher outputDispatcher;
 
   private volatile boolean running = true;
   private PcapHandle handle;
@@ -31,12 +37,12 @@ public class CaptureModule {
       String filePath,
       PacketParser parser,
       SecurityAnalyzer analyzer,
-      OutputModule outputModule) {
+      OutputDispatcher outputDispatcher) {
     this.interfaceName = interfaceName;
     this.filePath = filePath;
     this.parser = parser;
     this.analyzer = analyzer;
-    this.outputModule = outputModule;
+    this.outputDispatcher = outputDispatcher;
   }
 
   public void start() throws IOException, NotOpenException, PcapNativeException {
@@ -59,10 +65,10 @@ public class CaptureModule {
           continue;
         }
 
-        outputModule.printPacket(dto);
+        outputDispatcher.printPacket(dto);
         List<AlertEvent> alerts = analyzer.analyze(dto);
         for (AlertEvent alert : alerts) {
-          outputModule.writeAlert(alert);
+          outputDispatcher.writeAlert(alert);
         }
       }
     } finally {

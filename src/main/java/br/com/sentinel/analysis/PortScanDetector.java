@@ -1,9 +1,11 @@
-package br.com.sentinel;
+package br.com.sentinel.analysis;
 
+import br.com.sentinel.model.AlertEvent;
+import br.com.sentinel.model.PacketDTO;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.List;
@@ -11,8 +13,9 @@ import java.util.Map;
 
 public class PortScanDetector {
 
-  private static final int PORT_SCAN_THRESHOLD = 20;
-  private static final Duration PORT_SCAN_WINDOW = Duration.ofSeconds(60);
+  private static final int PORT_SCAN_THRESHOLD = DetectionConfig.PORT_SCAN_THRESHOLD;
+  private static final Duration PORT_SCAN_WINDOW =
+      Duration.ofSeconds(DetectionConfig.PORT_SCAN_WINDOW_SECONDS);
   private static final Duration PORT_SCAN_COOLDOWN = PORT_SCAN_WINDOW;
 
   private static class PortAttempt {
