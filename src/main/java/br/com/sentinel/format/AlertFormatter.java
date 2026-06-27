@@ -2,7 +2,6 @@ package br.com.sentinel.format;
 
 import br.com.sentinel.model.AlertEvent;
 import lombok.experimental.UtilityClass;
-import java.time.format.DateTimeFormatter;
 
 @UtilityClass
 public final class AlertFormatter {
@@ -11,7 +10,7 @@ public final class AlertFormatter {
     if (alert == null) {
       return "-";
     }
-    String time = DateTimeFormatter.ISO_INSTANT.format(alert.getTimestamp());
+    String time = java.time.format.DateTimeFormatter.ISO_INSTANT.format(alert.getTimestamp());
     return String.format(
         "%s | %s | %s | %s -> %s | %s",
         time,
@@ -35,6 +34,22 @@ public final class AlertFormatter {
     details.append(explainAlert(alert.getType()));
     details.append("\n\nPortas tentadas:\n");
     details.append(PacketFormatter.formatPortSummary(alert.getRelatedPackets()));
+    return details.toString();
+  }
+
+  public static String buildFragmentationSummary(AlertEvent alert) {
+    if (alert == null) {
+      return "";
+    }
+    StringBuilder details = new StringBuilder();
+    details.append("Linha gerada:\n");
+    details.append(formatConsoleLine(alert)).append("\n\n");
+    details.append("Descrição do alerta:\n");
+    details.append(PacketFormatter.nullSafe(alert.getDescription())).append("\n\n");
+    details.append("Como a fragmentação foi identificada:\n");
+    details.append(explainAlert(alert.getType())).append("\n\n");
+    details.append("Detalhes dos fragmentos relacionados:\n");
+    details.append(PacketFormatter.formatFragmentationSummary(alert.getRelatedPackets()));
     return details.toString();
   }
 

@@ -38,6 +38,17 @@ public final class AlertDetailWindow {
     summaryArea.setFocusTraversable(false);
     summaryArea.setPrefRowCount(8);
 
+    TextArea fragmentationArea = null;
+    Label fragmentationLabel = null;
+    if (alert.getType() == AlertEvent.Type.FRAGMENTATION) {
+      fragmentationLabel = new Label("Detalhes da fragmentação");
+      fragmentationArea = new TextArea(AlertFormatter.buildFragmentationSummary(alert));
+      fragmentationArea.setEditable(false);
+      fragmentationArea.setWrapText(true);
+      fragmentationArea.setFocusTraversable(false);
+      fragmentationArea.setPrefRowCount(8);
+    }
+
     TableView<PacketDTO> relatedPacketTable = PacketTableFactory.createRelated(alert.getRelatedPackets());
 
     Label summaryLabel = new Label("Resumo");
@@ -48,7 +59,21 @@ public final class AlertDetailWindow {
     HBox footer = new HBox(closeButton);
     footer.setAlignment(Pos.CENTER_RIGHT);
 
-    VBox content = new VBox(10, summaryLabel, summaryArea, packetLabel, relatedPacketTable, footer);
+    VBox content;
+    if (fragmentationArea != null && fragmentationLabel != null) {
+      content = new VBox(
+          10,
+          summaryLabel,
+          summaryArea,
+          fragmentationLabel,
+          fragmentationArea,
+          packetLabel,
+          relatedPacketTable,
+          footer);
+      VBox.setVgrow(fragmentationArea, Priority.ALWAYS);
+    } else {
+      content = new VBox(10, summaryLabel, summaryArea, packetLabel, relatedPacketTable, footer);
+    }
     content.setPadding(new Insets(12));
     VBox.setVgrow(relatedPacketTable, Priority.ALWAYS);
 

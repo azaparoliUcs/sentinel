@@ -69,6 +69,48 @@ public final class PacketFormatter {
     return ip + ":" + port;
   }
 
+  public static String formatFragmentationSummary(List<PacketDTO> packets) {
+    if (packets == null || packets.isEmpty()) {
+      return "Nenhum fragmento relacionado armazenado.";
+    }
+
+    StringBuilder summary = new StringBuilder();
+    PacketDTO first = null;
+    int index = 1;
+    for (PacketDTO packet : packets) {
+      if (packet == null || !packet.isIpv4Fragmented()) {
+        continue;
+      }
+      if (first == null) {
+        first = packet;
+      }
+      summary.append("- Fragmento ")
+          .append(index++)
+          .append(": offset=")
+          .append(nullSafeInteger(packet.getIpv4FragmentOffset()))
+          .append(", payload=")
+          .append(nullSafeInteger(packet.getIpv4PayloadLength()))
+          .append(" bytes, ")
+          .append(packet.isIpv4MoreFragments() ? "MF" : "LF")
+          .append("\n");
+    }
+
+    if (first != null) {
+      summary.insert(0, String.format(
+          "Datagrama IPv4: %s -> %s | ID=%s | protocolo=%s%n",
+          nullSafe(first.getSourceIp()),
+          nullSafe(first.getDestinationIp()),
+          nullSafeInteger(first.getIpv4Identification()),
+          nullSafe(first.getProtocol())));
+    }
+
+    if (summary.length() == 0) {
+      return "Nenhum fragmento relacionado armazenado.";
+    }
+
+    return summary.toString().trim();
+  }
+
   public static String buildTcpFlags(PacketDTO packet) {
     List<String> flags = new ArrayList<>();
     if (packet.isTcpSyn()) {
